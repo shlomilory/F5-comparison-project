@@ -1,0 +1,31 @@
+# AWS Configuration
+aws_region  = "us-east-1"
+environment = "dev"
+
+# Network Configuration
+vpc_cidr            = "10.0.0.0/16"
+public_subnet_cidr  = "10.0.1.0/24"
+private_subnet_cidr = "10.0.2.0/24"
+home_network_cidr   = "10.x.x.0/24"  # Replace with your home network CIDR
+
+# F5 Server Configuration
+f5_server1_ip   = "10.x.x.x"  # Replace with F5 Server 1 IP
+f5_server2_ip   = "10.x.x.x"  # Replace with F5 Server 2 IP
+f5_config_path  = "/path/to/config.conf"
+f5_ssh_username = "your_username"
+
+# VPN Configuration
+enable_vpn        = true
+vpn_instance_type = "t3.micro"
+
+# Lambda Configuration
+lambda_schedule = "cron(0 2 * * ? *)"  # Daily at 2 AM UTC
+
+# S3 Configuration
+s3_lifecycle_days = 30
+
+# Teams webhook
+teams_webhook_url = "https://example.com/webhook/placeholder"
+
+# SSH Private Key - Set via environment variable:
+# export TF_VAR_ssh_private_key=$(cat ~/.ssh/your_key)
