@@ -91,8 +91,8 @@ AWS Cloud (VPC 10.0.0.0/16)                    Home Network (10.100.102.0/24)
 
 ```bash
 # 1. Clone the repository:
-   git clone https://github.com/shlomilory/F5-comparison-project.git
-   cd F5-comparison-project
+git clone https://github.com/shlomilory/F5-comparison-project.git
+cd F5-comparison-project
 
 # 2. Configure variables
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
