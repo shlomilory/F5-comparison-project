@@ -1,0 +1,44 @@
+# Terraform
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+*.tfvars
+!terraform.tfvars.example
+*.zip
+terraform.tfstate*
+
+# Lambda deployment package
+lambda_deployment.zip
+
+# SSH keys
+*.pem
+*.pub
+id_rsa*
+f5_*
+*_rsa*
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# VPN client configs
+*.ovpn
+*.crt
+*.key
+ta.key
+
+# Logs
+*.log
+
+# IDE files
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+python/
+
