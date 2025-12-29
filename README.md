@@ -90,19 +90,23 @@ AWS Cloud (VPC 10.0.0.0/16)                    Home Network (10.100.102.0/24)
 ### Deployment
 
 ```bash
-# 1. Configure variables
+# 1. Clone the repository:
+   git clone https://github.com/shlomilory/F5-comparison-project.git
+   cd F5-comparison-project
+
+# 2. Configure variables
 cp terraform/terraform.tfvars.example terraform/terraform.tfvars
 # Edit terraform.tfvars with your settings
 
-# 2. Set SSH key
+# 3. Set SSH key
 export TF_VAR_ssh_private_key=$(cat ~/.ssh/your_key)
 
-# 3. Build Lambda package
+# 4. Build Lambda package
 docker run --rm -v ${PWD}:/var/task --entrypoint pip \
   public.ecr.aws/lambda/python:3.11 install paramiko -t /var/task/python/
 zip -r lambda_deployment.zip lambda_function.py python/
 
-# 4. Deploy
+# 5. Deploy
 cd terraform
 terraform init
 terraform apply
