@@ -204,3 +204,46 @@ resource "aws_vpc_endpoint" "secrets_manager" {
     Name = "f5-secrets-manager-endpoint"
   })
 }
+
+# DynamoDB VPC Endpoint
+resource "aws_vpc_endpoint" "dynamodb" {
+  vpc_id            = aws_vpc.main.id
+  service_name      = "com.amazonaws.${var.aws_region}.dynamodb"
+  vpc_endpoint_type = "Gateway"
+  
+  route_table_ids = [
+    aws_route_table.private.id
+  ]
+
+  tags = merge(local.common_tags, {
+    Name = "f5-dynamodb-endpoint"
+  })
+}
+
+# CloudWatch Logs VPC Endpoint (for Lambda logging)
+resource "aws_vpc_endpoint" "cloudwatch_logs" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws_region}.logs"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private.id]
+  security_group_ids  = [aws_security_group.lambda.id]
+  private_dns_enabled = true
+
+  tags = merge(local.common_tags, {
+    Name = "f5-cloudwatch-logs-endpoint"
+  })
+}
+
+# CloudWatch Monitoring VPC Endpoint (for custom metrics)
+resource "aws_vpc_endpoint" "cloudwatch_monitoring" {
+  vpc_id              = aws_vpc.main.id
+  service_name        = "com.amazonaws.${var.aws_region}.monitoring"
+  vpc_endpoint_type   = "Interface"
+  subnet_ids          = [aws_subnet.private.id]
+  security_group_ids  = [aws_security_group.lambda.id]
+  private_dns_enabled = true
+
+  tags = merge(local.common_tags, {
+    Name = "f5-cloudwatch-monitoring-endpoint"
+  })
+}

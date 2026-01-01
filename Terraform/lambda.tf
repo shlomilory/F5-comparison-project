@@ -13,7 +13,7 @@ resource "aws_iam_role" "lambda" {
         Principal = {
           Service = "lambda.amazonaws.com"
         }
-      }
+      },
     ]
   })
 
@@ -42,6 +42,14 @@ resource "aws_iam_role_policy" "lambda" {
           aws_s3_bucket.reports.arn,
           "${aws_s3_bucket.reports.arn}/*"
         ]
+      },
+      # CloudWatch Metrics (ADD THIS NEW BLOCK!)
+      {
+        Effect = "Allow"
+        Action = [
+          "cloudwatch:PutMetricData"
+        ]
+        Resource = "*"
       },
       # Secrets Manager access
       {
@@ -94,7 +102,7 @@ resource "aws_lambda_function" "f5_comparison" {
   handler          = "lambda_function.lambda_handler"
   source_code_hash = filebase64sha256("${path.module}/../lambda_deployment.zip")
   runtime          = "python3.11"
-  timeout          = 300
+  timeout          = 90
   memory_size      = 512
 
   vpc_config {
@@ -111,6 +119,7 @@ resource "aws_lambda_function" "f5_comparison" {
       SERVER1          = var.f5_server1_ip
       SERVER2          = var.f5_server2_ip
       CONFIG_PATH      = var.f5_config_path
+      DYNAMODB_TABLE_NAME = aws_dynamodb_table.f5_comparison_history.name
     }
   }
 
