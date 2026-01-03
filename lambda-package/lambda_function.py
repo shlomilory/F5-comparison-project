@@ -1,12 +1,25 @@
 """
 AWS Lambda Function: F5 Configuration Comparison Tool
-Version: 5.2.1 - Site-Aware + Ignore Rules + Ratio-Based Risk Scoring
+Version: 5.3.0 - Site-Aware + Universal Ignore Rules + Ratio-Based Risk Scoring
 
-New Features in v5.2.1:
-- Ignore both last-modified-time AND creation-time missing in PROD (expected differences)
+🎉 New Features in v5.3.0 - UNIVERSAL IGNORE RULES:
+- Cross-site different hosts ignored in ALL environments (not just PROD!)
+- Timestamp differences ignored in ALL environments (creation-time, last-modified-time)
+- Site architecture (10.100 vs 10.200) treated as expected across PROD, CORP, SANDBOX
+
+What's Now Ignored Universally:
+✅ Cross-site IP differences (10.100.220.204 vs 10.200.220.222)
+✅ Same host across sites (10.100.220.204 vs 10.200.220.204)  
+✅ Timestamp metadata (creation-time, last-modified-time)
+
+What's Still Flagged:
+🔴 CRITICAL: Same-network different hosts (10.100.220.204 vs 10.100.220.222)
+🔴 CRITICAL: Different networks (10.100.x.x vs 192.168.x.x)
+🔴 CRITICAL (PROD only): Missing configurations
+⚠️ WARNING (CORP/SANDBOX): Missing configurations
+⚠️ WARNING: Other non-IP differences
 
 Features in v5.2:
-- Ignore cross-site different hosts in PROD (10.100.x.x vs 10.200.x.x = MATCH)
 - New risk scoring: <critical>/<total> with percentages instead of 0-100
 - Risk levels: LOW (<1%), MEDIUM (1-5%), HIGH (>5%)
 
@@ -298,20 +311,20 @@ def compare_virtual_servers(
             value1 = vs_config1.get(key, '(missing)')
             value2 = vs_config2.get(key, '(missing)')
             
-            # Special case: Ignore timestamp metadata missing in PROD (it's OK!)
-            # These are expected to differ between sites and should not be flagged as critical
-            if key in ['last-modified-time', 'creation-time'] and env_type == 'PROD':
-                if value1 == '(missing)' or value2 == '(missing)':
-                    # Don't mark as difference - this is expected
-                    configurations.append({
-                        'key': key,
-                        'file1': value1,
-                        'file2': value2,
-                        'isDiff': False,
-                        'isIP': False,
-                        'severity': 'MATCH'
-                    })
-                    continue
+            # Special case: Ignore ALL timestamp metadata in ALL environments (always OK!)
+            # Timestamps are metadata and expected to differ between sites
+            # They don't affect F5 functionality and should never be flagged
+            if key in ['last-modified-time', 'creation-time']:
+                # Always ignore - whether missing OR different, in ANY environment
+                configurations.append({
+                    'key': key,
+                    'file1': value1,
+                    'file2': value2,
+                    'isDiff': False,  # Never mark as difference
+                    'isIP': False,
+                    'severity': 'MATCH'
+                })
+                continue
             
             # Check if this is a destination IP
             is_destination = 'destination' in key.lower()
@@ -320,8 +333,9 @@ def compare_virtual_servers(
                 # Site-aware IP comparison
                 is_diff, severity = classify_ip_difference(value1, value2)
                 
-                # Special case for PROD: Ignore cross-site different hosts (expected!)
-                if env_type == 'PROD' and severity == 'WARNING':
+                # Special case for ALL environments: Ignore cross-site different hosts (expected!)
+                # Cross-site architecture is standard across PROD, CORP, and SANDBOX
+                if severity == 'WARNING':
                     # Cross-site different hosts → Not even a warning, just MATCH!
                     is_diff = False
                     severity = 'MATCH'
