@@ -1,9 +1,11 @@
 """
 AWS Lambda Function: F5 Configuration Comparison Tool
-Version: 5.2 - Site-Aware + Ignore Rules + Ratio-Based Risk Scoring
+Version: 5.2.1 - Site-Aware + Ignore Rules + Ratio-Based Risk Scoring
 
-New Features in v5.2:
-- Ignore last-modified-time missing in PROD (expected difference)
+New Features in v5.2.1:
+- Ignore both last-modified-time AND creation-time missing in PROD (expected differences)
+
+Features in v5.2:
 - Ignore cross-site different hosts in PROD (10.100.x.x vs 10.200.x.x = MATCH)
 - New risk scoring: <critical>/<total> with percentages instead of 0-100
 - Risk levels: LOW (<1%), MEDIUM (1-5%), HIGH (>5%)
@@ -296,8 +298,9 @@ def compare_virtual_servers(
             value1 = vs_config1.get(key, '(missing)')
             value2 = vs_config2.get(key, '(missing)')
             
-            # Special case: Ignore last-modified-time missing in PROD (it's OK!)
-            if key == 'last-modified-time' and env_type == 'PROD':
+            # Special case: Ignore timestamp metadata missing in PROD (it's OK!)
+            # These are expected to differ between sites and should not be flagged as critical
+            if key in ['last-modified-time', 'creation-time'] and env_type == 'PROD':
                 if value1 == '(missing)' or value2 == '(missing)':
                     # Don't mark as difference - this is expected
                     configurations.append({
