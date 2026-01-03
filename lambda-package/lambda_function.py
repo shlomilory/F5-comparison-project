@@ -1,31 +1,37 @@
 """
 AWS Lambda Function: F5 Configuration Comparison Tool
-Version: 5.3.0 - Site-Aware + Universal Ignore Rules + Ratio-Based Risk Scoring
+Version: 5.3.1 - Site-Aware + Universal Ignore Rules + Environment-Appropriate Severity
 
-🎉 New Features in v5.3.0 - UNIVERSAL IGNORE RULES:
-- Cross-site different hosts ignored in ALL environments (not just PROD!)
-- Timestamp differences ignored in ALL environments (creation-time, last-modified-time)
-- Site architecture (10.100 vs 10.200) treated as expected across PROD, CORP, SANDBOX
+🎉 New Features in v5.3.1 - SANDBOX/CORP IP DOWNGRADE:
+- IP differences in SANDBOX/CORP are now WARNING instead of CRITICAL
+- Only PROD has CRITICAL IP differences
+- SANDBOX and CORP are testing environments - even major differences are warnings
 
-What's Now Ignored Universally:
-✅ Cross-site IP differences (10.100.220.204 vs 10.200.220.222)
-✅ Same host across sites (10.100.220.204 vs 10.200.220.204)  
-✅ Timestamp metadata (creation-time, last-modified-time)
+Severity by Environment:
+📍 PROD:
+  🔴 CRITICAL: Same-network different hosts, completely different networks, missing configs
+  ⚠️ WARNING: Other non-IP differences
+  ✅ MATCH: Cross-site IPs, timestamps
 
-What's Still Flagged:
-🔴 CRITICAL: Same-network different hosts (10.100.220.204 vs 10.100.220.222)
-🔴 CRITICAL: Different networks (10.100.x.x vs 192.168.x.x)
-🔴 CRITICAL (PROD only): Missing configurations
-⚠️ WARNING (CORP/SANDBOX): Missing configurations
-⚠️ WARNING: Other non-IP differences
+📍 CORP / SANDBOX:
+  ⚠️ WARNING: All IP differences, missing configs, other differences
+  ✅ MATCH: Cross-site IPs (when same host), timestamps
+
+📍 ALL Environments - Always Ignored:
+  ✅ Cross-site different hosts (10.100.x.x vs 10.200.y.y)
+  ✅ Timestamps (creation-time, last-modified-time)
+
+Features in v5.3.0:
+- Cross-site different hosts ignored in ALL environments
+- Timestamp differences ignored in ALL environments
 
 Features in v5.2:
-- New risk scoring: <critical>/<total> with percentages instead of 0-100
+- New risk scoring: <critical>/<total> with percentages
 - Risk levels: LOW (<1%), MEDIUM (1-5%), HIGH (>5%)
 
-Previous Features (v5.0-5.1):
-- Site-aware IP comparison (NJ: 10.100.x.x vs HRZ: 10.200.x.x)
-- Environment-based risk classification (Prod/Corp/Sandbox)
+Previous Features:
+- Site-aware IP comparison
+- Environment-based risk classification
 - Redundancy detection
 - Default collapsed UI
 """
@@ -339,6 +345,11 @@ def compare_virtual_servers(
                     # Cross-site different hosts → Not even a warning, just MATCH!
                     is_diff = False
                     severity = 'MATCH'
+                
+                # Downgrade CRITICAL to WARNING for non-PROD environments
+                # SANDBOX and CORP are for testing - even major IP differences are just warnings
+                if severity == 'CRITICAL' and env_type in ['CORP', 'SANDBOX', 'UNKNOWN']:
+                    severity = 'WARNING'
                 
                 if severity == 'MATCH':
                     # Same host across sites - not a difference!
