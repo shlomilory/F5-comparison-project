@@ -1,10 +1,16 @@
 """
 AWS Lambda Function: F5 Configuration Comparison Tool
-Version: 5.0 - Site-Aware Comparison + Environment-Based Risk Classification
+Version: 5.2 - Site-Aware + Ignore Rules + Ratio-Based Risk Scoring
 
-New Features:
+New Features in v5.2:
+- Ignore last-modified-time missing in PROD (expected difference)
+- Ignore cross-site different hosts in PROD (10.100.x.x vs 10.200.x.x = MATCH)
+- New risk scoring: <critical>/<total> with percentages instead of 0-100
+- Risk levels: LOW (<1%), MEDIUM (1-5%), HIGH (>5%)
+
+Previous Features (v5.0-5.1):
 - Site-aware IP comparison (NJ: 10.100.x.x vs HRZ: 10.200.x.x)
-- Environment-based risk classification (Prod/Corp/SB)
+- Environment-based risk classification (Prod/Corp/Sandbox)
 - Redundancy detection
 - Default collapsed UI
 """
@@ -290,12 +296,32 @@ def compare_virtual_servers(
             value1 = vs_config1.get(key, '(missing)')
             value2 = vs_config2.get(key, '(missing)')
             
+            # Special case: Ignore last-modified-time missing in PROD (it's OK!)
+            if key == 'last-modified-time' and env_type == 'PROD':
+                if value1 == '(missing)' or value2 == '(missing)':
+                    # Don't mark as difference - this is expected
+                    configurations.append({
+                        'key': key,
+                        'file1': value1,
+                        'file2': value2,
+                        'isDiff': False,
+                        'isIP': False,
+                        'severity': 'MATCH'
+                    })
+                    continue
+            
             # Check if this is a destination IP
             is_destination = 'destination' in key.lower()
             
             if is_destination and value1 != '(missing)' and value2 != '(missing)':
                 # Site-aware IP comparison
                 is_diff, severity = classify_ip_difference(value1, value2)
+                
+                # Special case for PROD: Ignore cross-site different hosts (expected!)
+                if env_type == 'PROD' and severity == 'WARNING':
+                    # Cross-site different hosts → Not even a warning, just MATCH!
+                    is_diff = False
+                    severity = 'MATCH'
                 
                 if severity == 'MATCH':
                     # Same host across sites - not a difference!
@@ -377,69 +403,101 @@ def is_ip_address(value: str) -> bool:
 
 def analyze_patterns(comparison_data: List[Dict[str, Any]], historical_data: List[Dict] = None) -> Dict[str, Any]:
     """
-    Smart Rules Engine - Analyze patterns with environment-aware risk scoring
+    Smart Rules Engine - Analyze patterns with new ratio-based risk scoring
+    Risk Score Format: <critical_count>/<total_vs> (percentage)
     """
     insights = {
         'alerts': [],
         'warnings': [],
         'info': [],
-        'risk_score': 0  # 0-100
+        'critical_count': 0,
+        'warning_count': 0,
+        'match_count': 0,
+        'total_count': 0,
+        'critical_percentage': 0.0,
+        'warning_percentage': 0.0,
+        'match_percentage': 0.0,
+        'risk_level': 'LOW'  # LOW, MEDIUM, HIGH
     }
     
     total_vs = len(comparison_data)
-    with_diff = sum(1 for vs in comparison_data if vs['hasDifferences'])
     critical = sum(1 for vs in comparison_data if vs['isCritical'])
     warnings = sum(1 for vs in comparison_data if vs['isWarning'])
+    matches = total_vs - critical - warnings
     no_redundancy = sum(1 for vs in comparison_data if vs['hasNoRedundancy'])
     
+    # Calculate percentages
+    critical_pct = (critical / total_vs * 100) if total_vs > 0 else 0
+    warning_pct = (warnings / total_vs * 100) if total_vs > 0 else 0
+    match_pct = (matches / total_vs * 100) if total_vs > 0 else 0
+    
+    # Store counts and percentages
+    insights['critical_count'] = critical
+    insights['warning_count'] = warnings
+    insights['match_count'] = matches
+    insights['total_count'] = total_vs
+    insights['critical_percentage'] = round(critical_pct, 1)
+    insights['warning_percentage'] = round(warning_pct, 1)
+    insights['match_percentage'] = round(match_pct, 1)
+    
+    # Determine risk level based on critical percentage
+    if critical_pct >= 5.0:
+        insights['risk_level'] = 'HIGH'
+        insights['assessment'] = 'HIGH RISK - Significant critical issues detected'
+    elif critical_pct >= 1.0:
+        insights['risk_level'] = 'MEDIUM'
+        insights['assessment'] = 'MEDIUM RISK - Some critical issues require attention'
+    else:
+        insights['risk_level'] = 'LOW'
+        insights['assessment'] = 'LOW RISK - Minimal critical issues'
+    
+    # Production virtual servers analysis
     prod_vs = [vs for vs in comparison_data if vs['environment'] == 'PROD']
-    prod_with_diff = sum(1 for vs in prod_vs if vs['hasDifferences'])
+    prod_critical = sum(1 for vs in prod_vs if vs['isCritical'])
+    prod_warnings = sum(1 for vs in prod_vs if vs['isWarning'])
     
-    # Rule 1: Production changes (HIGH PRIORITY)
-    if prod_with_diff > 0:
-        insights['alerts'].append({
-            'type': 'PROD_CHANGES',
-            'message': f'🚨 {prod_with_diff} production virtual servers have differences',
-            'severity': 'HIGH'
-        })
-        insights['risk_score'] += 40
-    
-    # Rule 2: High change rate
-    change_rate = (with_diff / total_vs * 100) if total_vs > 0 else 0
-    if change_rate > 50:
-        insights['alerts'].append({
-            'type': 'HIGH_CHANGE_RATE',
-            'message': f'{with_diff} out of {total_vs} virtual servers changed ({change_rate:.1f}%)',
-            'severity': 'HIGH'
-        })
-        insights['risk_score'] += 30
-    elif change_rate > 25:
-        insights['warnings'].append({
-            'type': 'MODERATE_CHANGE_RATE',
-            'message': f'{with_diff} out of {total_vs} virtual servers changed ({change_rate:.1f}%)',
-            'severity': 'MEDIUM'
-        })
-        insights['risk_score'] += 15
-    
-    # Rule 3: Critical IP mismatches
+    # Rule 1: Critical issues detected
     if critical > 0:
         insights['alerts'].append({
-            'type': 'CRITICAL_IP_CHANGES',
-            'message': f'{critical} virtual servers have critical IP mismatches',
+            'type': 'CRITICAL_ISSUES',
+            'message': f'🔴 {critical} virtual servers have critical issues ({critical_pct:.1f}%)',
             'severity': 'HIGH'
         })
-        insights['risk_score'] += 20
+    
+    # Rule 2: Production critical issues (HIGH PRIORITY)
+    if prod_critical > 0:
+        insights['alerts'].append({
+            'type': 'PROD_CRITICAL',
+            'message': f'🚨 {prod_critical} PRODUCTION virtual servers have critical issues',
+            'severity': 'HIGH'
+        })
+    
+    # Rule 3: Production warnings
+    if prod_warnings > 0:
+        insights['warnings'].append({
+            'type': 'PROD_WARNINGS',
+            'message': f'⚠️ {prod_warnings} production virtual servers have warnings',
+            'severity': 'MEDIUM'
+        })
     
     # Rule 4: Missing redundancy
     if no_redundancy > 0:
+        redundancy_pct = (no_redundancy / total_vs * 100) if total_vs > 0 else 0
         insights['warnings'].append({
             'type': 'NO_REDUNDANCY',
-            'message': f'{no_redundancy} virtual servers exist in only one site (no redundancy)',
+            'message': f'⚠️ {no_redundancy} virtual servers exist in only one site ({redundancy_pct:.1f}% - no redundancy)',
             'severity': 'MEDIUM'
         })
-        insights['risk_score'] += 10
     
-    # Rule 5: Environment distribution
+    # Rule 5: Overall warnings
+    if warnings > 0:
+        insights['warnings'].append({
+            'type': 'WARNINGS_DETECTED',
+            'message': f'⚠️ {warnings} virtual servers have warnings ({warning_pct:.1f}%)',
+            'severity': 'MEDIUM'
+        })
+    
+    # Rule 6: Environment distribution
     env_counts = {}
     for vs in comparison_data:
         env = vs['environment']
@@ -451,16 +509,13 @@ def analyze_patterns(comparison_data: List[Dict[str, Any]], historical_data: Lis
         'severity': 'INFO'
     })
     
-    # Cap risk score at 100
-    insights['risk_score'] = min(insights['risk_score'], 100)
-    
-    # Assessment
-    if insights['risk_score'] >= 70:
-        insights['assessment'] = 'HIGH RISK - Review carefully before applying'
-    elif insights['risk_score'] >= 40:
-        insights['assessment'] = 'MEDIUM RISK - Some concerns detected'
-    else:
-        insights['assessment'] = 'LOW RISK - Changes appear safe'
+    # Rule 7: Good news if mostly matches
+    if match_pct >= 95.0:
+        insights['info'].append({
+            'type': 'MOSTLY_MATCHES',
+            'message': f'✅ {matches} virtual servers match perfectly ({match_pct:.1f}%)',
+            'severity': 'INFO'
+        })
     
     return insights
 
@@ -487,10 +542,14 @@ def store_comparison_metadata(
                 's3_url': s3_url,
                 'total_vs': len(comparison_data),
                 'with_differences': sum(1 for vs in comparison_data if vs['hasDifferences']),
-                'critical_count': sum(1 for vs in comparison_data if vs['isCritical']),
-                'warning_count': sum(1 for vs in comparison_data if vs['isWarning']),
+                'critical_count': insights['critical_count'],
+                'warning_count': insights['warning_count'],
+                'match_count': insights['match_count'],
                 'no_redundancy_count': sum(1 for vs in comparison_data if vs['hasNoRedundancy']),
-                'risk_score': Decimal(str(insights['risk_score'])),
+                'critical_percentage': Decimal(str(insights['critical_percentage'])),
+                'warning_percentage': Decimal(str(insights['warning_percentage'])),
+                'match_percentage': Decimal(str(insights['match_percentage'])),
+                'risk_level': insights['risk_level'],
                 'assessment': insights['assessment'],
                 'ttl': int((datetime.now() + timedelta(days=90)).timestamp())
             }
@@ -511,35 +570,37 @@ def publish_cloudwatch_metrics(
         # Create a FRESH CloudWatch client (important for VPC endpoints!)
         cw_client = boto3.client('cloudwatch')
         
-        total_vs = len(comparison_data)
-        with_diff = sum(1 for vs in comparison_data if vs['hasDifferences'])
-        critical = sum(1 for vs in comparison_data if vs['isCritical'])
-        
         cw_client.put_metric_data(
             Namespace='F5/ConfigComparison',
             MetricData=[
                 {
                     'MetricName': 'TotalVirtualServers',
-                    'Value': total_vs,
+                    'Value': insights['total_count'],
                     'Unit': 'Count',
                     'Timestamp': datetime.now()
                 },
                 {
-                    'MetricName': 'VirtualServersWithDifferences',
-                    'Value': with_diff,
+                    'MetricName': 'CriticalCount',
+                    'Value': insights['critical_count'],
                     'Unit': 'Count',
                     'Timestamp': datetime.now()
                 },
                 {
-                    'MetricName': 'CriticalChanges',
-                    'Value': critical,
+                    'MetricName': 'WarningCount',
+                    'Value': insights['warning_count'],
                     'Unit': 'Count',
                     'Timestamp': datetime.now()
                 },
                 {
-                    'MetricName': 'RiskScore',
-                    'Value': insights['risk_score'],
-                    'Unit': 'None',
+                    'MetricName': 'MatchCount',
+                    'Value': insights['match_count'],
+                    'Unit': 'Count',
+                    'Timestamp': datetime.now()
+                },
+                {
+                    'MetricName': 'CriticalPercentage',
+                    'Value': insights['critical_percentage'],
+                    'Unit': 'Percent',
                     'Timestamp': datetime.now()
                 }
             ]
@@ -561,11 +622,15 @@ def generate_enhanced_html(
 ) -> str:
     """Generate enhanced HTML report with site-aware comparison"""
     
+    # Use insights data for stats
     stats = {
-        'total': len(comparison_data),
-        'differences': sum(1 for vs in comparison_data if vs['hasDifferences']),
-        'critical': sum(1 for vs in comparison_data if vs['isCritical']),
-        'warnings': sum(1 for vs in comparison_data if vs['isWarning']),
+        'total': insights['total_count'],
+        'critical': insights['critical_count'],
+        'warnings': insights['warning_count'],
+        'matches': insights['match_count'],
+        'critical_pct': insights['critical_percentage'],
+        'warning_pct': insights['warning_percentage'],
+        'match_pct': insights['match_percentage'],
         'no_redundancy': sum(1 for vs in comparison_data if vs['hasNoRedundancy'])
     }
     
@@ -785,9 +850,9 @@ def generate_enhanced_html(
         }}
 
         .stat-card.total .stat-value {{ color: var(--accent-primary); }}
-        .stat-card.differences .stat-value {{ color: var(--accent-warning); }}
         .stat-card.critical .stat-value {{ color: var(--accent-danger); }}
         .stat-card.warnings .stat-value {{ color: #ff9800; }}
+        .stat-card.matches .stat-value {{ color: var(--accent-success); }}
         .stat-card.no-redundancy .stat-value {{ color: #9c27b0; }}
 
         .insights-panel {{
@@ -1065,17 +1130,17 @@ def generate_enhanced_html(
                 <div class="stat-value">{stats['total']}</div>
                 <div class="stat-label">Total Virtual Servers</div>
             </div>
-            <div class="stat-card differences">
-                <div class="stat-value">{stats['differences']}</div>
-                <div class="stat-label">With Differences</div>
-            </div>
             <div class="stat-card critical">
                 <div class="stat-value">{stats['critical']}</div>
-                <div class="stat-label">Critical</div>
+                <div class="stat-label">Critical ({stats['critical_pct']}%)</div>
             </div>
             <div class="stat-card warnings">
                 <div class="stat-value">{stats['warnings']}</div>
-                <div class="stat-label">Warnings</div>
+                <div class="stat-label">Warnings ({stats['warning_pct']}%)</div>
+            </div>
+            <div class="stat-card matches">
+                <div class="stat-value">{stats['matches']}</div>
+                <div class="stat-label">Matches ({stats['match_pct']}%)</div>
             </div>
             <div class="stat-card no-redundancy">
                 <div class="stat-value">{stats['no_redundancy']}</div>
@@ -1115,13 +1180,18 @@ def generate_enhanced_html(
         // Render insights panel
         function renderInsights() {{
             const panel = document.getElementById('insightsPanel');
-            const riskClass = insights.risk_score >= 70 ? 'risk-high' : (insights.risk_score >= 40 ? 'risk-medium' : 'risk-low');
+            const riskClass = insights.risk_level === 'HIGH' ? 'risk-high' : (insights.risk_level === 'MEDIUM' ? 'risk-medium' : 'risk-low');
             
             let html = `
                 <div class="insights-header">
                     <span class="insights-title">🎯 Smart Analysis Insights</span>
-                    <span class="risk-badge ${{riskClass}}">Risk Score: ${{insights.risk_score}}/100</span>
-                    <span style="color: var(--text-secondary); margin-left: auto;">${{insights.assessment}}</span>
+                    <span class="risk-badge ${{riskClass}}">
+                        🔴 Critical: ${{insights.critical_count}}/${{insights.total_count}} (${{insights.critical_percentage}}%)
+                    </span>
+                    <span class="risk-badge ${{riskClass}}" style="margin-left: 0.5rem;">
+                        Risk Level: ${{insights.risk_level}}
+                    </span>
+                    <span style="color: var(--text-secondary); margin-left: auto; font-size: 0.9rem;">${{insights.assessment}}</span>
                 </div>
                 <div class="insights-grid" id="insightsGrid"></div>
             `;
@@ -1399,11 +1469,11 @@ def send_enhanced_webhook(
     import urllib.parse
     
     try:
-        # Determine color based on risk
-        if insights['risk_score'] >= 70:
+        # Determine color based on risk level
+        if insights['risk_level'] == 'HIGH':
             color = "FF0000"  # Red
             title = "🚨 F5 Configuration - HIGH RISK Changes Detected"
-        elif insights['risk_score'] >= 40:
+        elif insights['risk_level'] == 'MEDIUM':
             color = "FFA500"  # Orange
             title = "⚠️ F5 Configuration - Changes Require Review"
         elif stats.get('differences', 0) > 0:
@@ -1418,11 +1488,11 @@ def send_enhanced_webhook(
             {"name": "Comparison", "value": f"{server1} (NJ) vs {server2} (HRZ)"},
             {"name": "Timestamp", "value": timestamp},
             {"name": "Total Virtual Servers", "value": str(stats.get('total', 0))},
-            {"name": "With Differences", "value": str(stats.get('differences', 0))},
-            {"name": "Critical Changes", "value": str(stats.get('critical', 0))},
-            {"name": "Warnings", "value": str(stats.get('warnings', 0))},
+            {"name": "Critical Count", "value": f"{insights['critical_count']} ({insights['critical_percentage']}%)"},
+            {"name": "Warning Count", "value": f"{insights['warning_count']} ({insights['warning_percentage']}%)"},
+            {"name": "Match Count", "value": f"{insights['match_count']} ({insights['match_percentage']}%)"},
             {"name": "No Redundancy", "value": str(stats.get('no_redundancy', 0))},
-            {"name": "Risk Score", "value": f"{insights['risk_score']}/100"},
+            {"name": "Risk Level", "value": insights['risk_level']},
             {"name": "Assessment", "value": insights['assessment']}
         ]
         
@@ -1524,7 +1594,8 @@ def lambda_handler(event, context):
             # Smart analysis with environment-aware risk scoring
             logger.info("Running smart pattern analysis")
             insights = analyze_patterns(comparison_data)
-            logger.info(f"Analysis complete - Risk Score: {insights['risk_score']}/100")
+            logger.info(f"Analysis complete - Risk Level: {insights['risk_level']}")
+            logger.info(f"Critical: {insights['critical_count']}/{insights['total_count']} ({insights['critical_percentage']}%)")
             logger.info(f"Assessment: {insights['assessment']}")
             
             # Statistics
