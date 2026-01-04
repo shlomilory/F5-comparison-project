@@ -10,14 +10,13 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
-  
+  profile = "Infrastructure-442028787335"
   default_tags {
     tags = {
       Environment = "production"
-      Resource    = "F5_RESOURCE"
       Project     = "F5-Config-Comparison"
       ManagedBy   = "Terraform"
-      Owner       = "DevOps"
+      Owner       = "DevOps-Infra"
     }
   }
 }
