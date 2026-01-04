@@ -7,7 +7,7 @@ resource "aws_vpc_endpoint" "s3" {
   vpc_id            = var.vpc_id
   service_name      = "com.amazonaws.${var.aws_region}.s3"
   vpc_endpoint_type = "Gateway"
-  route_table_ids   = [data.aws_subnet.lambda_subnet.route_table_id]
+  route_table_ids   = [data.aws_route_table.lambda_subnet.id]
 
   tags = {
     Name = "S3 VPC Endpoint - Production"
@@ -19,7 +19,7 @@ resource "aws_vpc_endpoint" "dynamodb" {
   vpc_id            = var.vpc_id
   service_name      = "com.amazonaws.${var.aws_region}.dynamodb"
   vpc_endpoint_type = "Gateway"
-  route_table_ids   = [data.aws_subnet.lambda_subnet.route_table_id]
+  route_table_ids   = [data.aws_route_table.lambda_subnet.id]
 
   tags = {
     Name = "DynamoDB VPC Endpoint - Production"
