@@ -13,10 +13,10 @@ provider "aws" {
   profile = "Infrastructure-442028787335"
   default_tags {
     tags = {
-      Environment = "production"
-      Project     = "F5-Config-Comparison"
-      ManagedBy   = "Terraform"
-      Owner       = "DevOps-Infra"
+      environment = "production"
+      project     = "F5-Config-Comparison"
+      managedBy   = "Terraform"
+      owner       = "DevOps-Infra"
     }
   }
 }

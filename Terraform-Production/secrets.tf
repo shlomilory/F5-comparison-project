@@ -3,7 +3,7 @@
 # ============================================================================
 
 resource "aws_secretsmanager_secret" "f5_credentials" {
-  name                    = "f5_comparison_production_secrets"
+  name                    = "f5_comparison_prod_secrets"
   description             = "SSH credentials for F5 servers - Production"
   recovery_window_in_days = 7
 
